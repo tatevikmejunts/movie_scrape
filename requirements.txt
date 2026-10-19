@@ -1,0 +1,7 @@
+requests
+beautifulsoup4
+yt-dlp
+fastapi
+uvicorn
+python-multipart
+jinja2
