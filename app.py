@@ -158,8 +158,8 @@ def list_files() -> JSONResponse:
     return JSONResponse({"files": files})
 
 
-@app.get("/files/{filename}")
-def serve_file(filename: str) -> FileResponse | JSONResponse:
+@app.get("/files/{filename}", response_model=None)
+def serve_file(filename: str):
     file_path = downloads_dir / filename
     if not file_path.exists():
         return JSONResponse({"error": "File not found"}, status_code=404)
