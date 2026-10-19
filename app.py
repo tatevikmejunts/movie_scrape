@@ -14,11 +14,18 @@ import download_video as dv
 from bs4 import BeautifulSoup
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 app = FastAPI(title="Kinogomy Downloader")
-templates = Jinja2Templates(directory="templates")
+# Disable Jinja2 template caching to avoid a cache-key hashability issue
+# between certain Starlette/Jinja2 versions on Render.
+jinja_env = Environment(
+    loader=FileSystemLoader("templates"),
+    autoescape=select_autoescape(["html", "xml"]),
+    cache_size=0,
+)
+templates = Jinja2Templates(env=jinja_env)
 
 downloads_dir = Path("downloads")
 downloads_dir.mkdir(exist_ok=True)
