@@ -84,6 +84,28 @@
     </div>
 
     <div class="card">
+        <h2>Batch download</h2>
+        <label for="batchSeason">Season</label>
+        <input type="number" id="batchSeason" value="1" min="1">
+
+        <label for="batchFrom">From episode</label>
+        <input type="number" id="batchFrom" value="1" min="1">
+
+        <label for="batchTo">To episode</label>
+        <input type="number" id="batchTo" value="5" min="1">
+
+        <label for="batchLang">Audio language</label>
+        <select id="batchLang">
+            <option value="eng" selected>English</option>
+            <option value="rus">Russian</option>
+            <option value="ukr">Ukrainian</option>
+        </select>
+
+        <button id="batchDownloadBtn" onclick="startBatchDownload()">Download range</button>
+        <div class="status" id="batchStatus"></div>
+    </div>
+
+    <div class="card">
         <h2>Downloaded files</h2>
         <button onclick="loadFiles()">Refresh list</button>
         <div class="file-list" id="fileList"></div>
@@ -164,23 +186,59 @@
             }
 
             status.textContent = 'Downloading ' + data.filename + '...';
-            pollStatus(data.job_id, data.filename);
+            pollStatus(data.job_id, data.filename, status, btn);
         }
 
-        function pollStatus(jobId, filename) {
-            const status = document.getElementById('status');
-            const btn = document.getElementById('downloadBtn');
+        function pollStatus(jobId, filename, statusEl, btnEl) {
             const interval = setInterval(async () => {
                 const res = await fetch('/status/' + jobId);
                 const data = await res.json();
-                status.textContent = data.status + ': ' + filename;
+                statusEl.textContent = data.status + ': ' + filename;
                 if (data.status === 'done' || data.status.startsWith('failed')) {
                     clearInterval(interval);
-                    btn.disabled = false;
+                    if (btnEl) btnEl.disabled = false;
                     loadFiles();
-                    if (data.status === 'done') status.innerHTML = `Done: <a href="/files/${encodeURIComponent(filename)}">${filename}</a>`;
+                    if (data.status === 'done') statusEl.innerHTML = `Done: <a href="/files/${encodeURIComponent(filename)}">${filename}</a>`;
                 }
             }, 2000);
+        }
+
+        async function startBatchDownload() {
+            const url = document.getElementById('url').value;
+            const season = document.getElementById('batchSeason').value;
+            const fromEp = document.getElementById('batchFrom').value;
+            const toEp = document.getElementById('batchTo').value;
+            const lang = document.getElementById('batchLang').value;
+            const status = document.getElementById('batchStatus');
+            const btn = document.getElementById('batchDownloadBtn');
+
+            btn.disabled = true;
+            status.textContent = `Queueing S${season.padStart(2,'0')}E${fromEp.padStart(2,'0')}-E${toEp.padStart(2,'0')}...`;
+
+            const res = await fetch('/download-batch', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: `page_url=${encodeURIComponent(url)}&season=${season}&episode_from=${fromEp}&episode_to=${toEp}&lang=${lang}`
+            });
+            const data = await res.json();
+
+            if (data.error) {
+                status.textContent = 'Error: ' + data.error;
+                btn.disabled = false;
+                return;
+            }
+
+            status.textContent = `Queued ${data.count} episodes.`;
+            data.job_ids.forEach((jobId, idx) => {
+                setTimeout(() => {
+                    const label = document.createElement('div');
+                    label.className = 'small';
+                    label.textContent = 'Watching job ' + jobId;
+                    status.appendChild(label);
+                    pollStatus(jobId, 'batch ' + (idx + 1), label, null);
+                }, idx * 500);
+            });
+            btn.disabled = false;
         }
 
         async function loadFiles() {

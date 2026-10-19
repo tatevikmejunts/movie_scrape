@@ -90,6 +90,36 @@ def episodes(page_url: str = Form(...)) -> JSONResponse:
     })
 
 
+def queue_download(
+    page_title: str | None,
+    page_url: str,
+    stream: dict,
+    lang: str,
+) -> str:
+    """Queue a single episode download and return its job ID."""
+    season = stream["season"]
+    episode = stream["episode"]
+    out_path = dv.make_out_path(page_title, page_url, None, season, episode)
+    out_path = downloads_dir / out_path.name
+
+    job_id = f"{season}-{episode}-{lang}-{int(time.time() * 1000)}"
+    download_jobs[job_id] = {
+        "status": "starting",
+        "path": str(out_path),
+        "season": season,
+        "episode": episode,
+        "lang": lang,
+        "filename": out_path.name,
+    }
+
+    threading.Thread(
+        target=run_download,
+        args=(job_id, stream, out_path, lang),
+        daemon=True,
+    ).start()
+    return job_id
+
+
 @app.post("/download")
 def start_download(
     page_url: str = Form(...),
@@ -116,28 +146,54 @@ def start_download(
     soup = BeautifulSoup(html, "html.parser")
     title_tag = soup.find("h1")
     page_title = title_tag.get_text(strip=True) if title_tag else None
-    out_path = dv.make_out_path(page_title, page_url, None, season, episode)
-    out_path = downloads_dir / out_path.name
 
-    job_id = f"{season}-{episode}-{lang}-{int(time.time() * 1000)}"
-    download_jobs[job_id] = {
-        "status": "starting",
-        "path": str(out_path),
-        "season": season,
-        "episode": episode,
-        "lang": lang,
-        "filename": out_path.name,
-    }
-
-    threading.Thread(
-        target=run_download,
-        args=(job_id, stream, out_path, lang),
-        daemon=True,
-    ).start()
-
+    job_id = queue_download(page_title, page_url, stream, lang)
     return JSONResponse({
         "job_id": job_id,
-        "filename": out_path.name,
+        "filename": download_jobs[job_id]["filename"],
+        "status": "starting",
+    })
+
+
+@app.post("/download-batch")
+def start_batch_download(
+    page_url: str = Form(...),
+    season: int = Form(...),
+    episode_from: int = Form(...),
+    episode_to: int = Form(...),
+    lang: str = Form("eng"),
+) -> JSONResponse:
+    try:
+        data = fetch_episode_data(page_url)
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+    if "error" in data:
+        return JSONResponse(data, status_code=400)
+
+    html = dv.fetch_text(page_url)
+    soup = BeautifulSoup(html, "html.parser")
+    title_tag = soup.find("h1")
+    page_title = title_tag.get_text(strip=True) if title_tag else None
+
+    job_ids = []
+    start = min(episode_from, episode_to)
+    end = max(episode_from, episode_to)
+    for episode in range(start, end + 1):
+        stream = dv.pick_stream(data["streams"], season, episode, lang)
+        if stream:
+            job_id = queue_download(page_title, page_url, stream, lang)
+            job_ids.append(job_id)
+
+    if not job_ids:
+        return JSONResponse(
+            {"error": f"No episodes found for S{season:02d}E{start:02d}-E{end:02d}"},
+            status_code=404,
+        )
+
+    return JSONResponse({
+        "job_ids": job_ids,
+        "count": len(job_ids),
         "status": "starting",
     })
 
