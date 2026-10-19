@@ -65,8 +65,9 @@ def run_download(job_id: str, stream: dict, out_path: Path, lang: str) -> None:
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
+        request,
         "index.html",
-        {"request": request, "default_url": dv.DEFAULT_URL},
+        {"default_url": dv.DEFAULT_URL},
     )
 
 

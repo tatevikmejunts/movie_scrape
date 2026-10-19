@@ -5,114 +5,285 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kinogomy Downloader</title>
     <style>
+        :root {
+            --bg: #0b0c10;
+            --surface: #1f2833;
+            --surface-light: #2a3544;
+            --text: #c5c6c7;
+            --heading: #66fcf1;
+            --accent: #45a29e;
+            --accent-hover: #5bc6bf;
+            --danger: #ef476f;
+            --success: #06d6a0;
+            --warning: #ffd166;
+        }
+
         * { box-sizing: border-box; }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
             margin: 0;
             padding: 1rem;
-            background: #0f0f0f;
-            color: #eee;
+            line-height: 1.5;
         }
-        h1 { font-size: 1.4rem; margin-bottom: 0.5rem; }
-        label { display: block; margin: 0.8rem 0 0.3rem; font-size: 0.9rem; color: #aaa; }
-        input, select, button {
-            width: 100%;
-            padding: 0.8rem;
-            font-size: 1rem;
-            border-radius: 0.5rem;
-            border: 1px solid #333;
-            background: #1a1a1a;
-            color: #eee;
+
+        .container {
+            max-width: 720px;
+            margin: 0 auto;
         }
-        button {
-            background: #2563eb;
-            border: none;
-            margin-top: 1rem;
-            font-weight: 600;
+
+        header {
+            text-align: center;
+            padding: 1.5rem 0 2rem;
         }
-        button:disabled { background: #334155; }
+
+        header h1 {
+            color: var(--heading);
+            font-size: 1.8rem;
+            margin: 0;
+            letter-spacing: -0.5px;
+        }
+
+        header p {
+            margin: 0.4rem 0 0;
+            color: #8b949e;
+            font-size: 0.95rem;
+        }
+
         .card {
-            background: #181818;
-            padding: 1rem;
-            border-radius: 0.75rem;
+            background: var(--surface);
+            border-radius: 1rem;
+            padding: 1.25rem;
             margin-bottom: 1rem;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.35);
         }
-        .status { margin-top: 1rem; font-size: 0.95rem; color: #93c5fd; }
-        .file-list { margin-top: 1rem; }
-        .file-item {
-            background: #202020;
+
+        .card h2 {
+            color: var(--heading);
+            font-size: 1.15rem;
+            margin: 0 0 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #8b949e;
+            margin: 0.9rem 0 0.35rem;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 0.85rem;
+            font-size: 1rem;
+            border-radius: 0.65rem;
+            border: 1px solid #374151;
+            background: var(--surface-light);
+            color: #f0f0f0;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        input:focus, select:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(69, 162, 158, 0.15);
+        }
+
+        button {
+            width: 100%;
+            padding: 0.9rem;
+            margin-top: 1.1rem;
+            font-size: 1rem;
+            font-weight: 700;
+            border: none;
+            border-radius: 0.65rem;
+            background: linear-gradient(135deg, var(--accent), #3d8b88);
+            color: #fff;
+            cursor: pointer;
+            transition: transform 0.1s, filter 0.2s;
+        }
+
+        button:hover { filter: brightness(1.1); }
+        button:active { transform: scale(0.98); }
+        button:disabled {
+            background: #3a444f;
+            cursor: not-allowed;
+            filter: none;
+        }
+
+        .btn-secondary {
+            background: var(--surface-light);
+            border: 1px solid #4b5563;
+            color: var(--text);
+        }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.75rem;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.75rem;
+        }
+
+        .status {
+            margin-top: 0.9rem;
             padding: 0.75rem;
             border-radius: 0.5rem;
-            margin-bottom: 0.5rem;
+            background: rgba(102, 252, 241, 0.08);
+            color: var(--heading);
+            font-size: 0.9rem;
+            min-height: 2.75rem;
+            display: flex;
+            align-items: center;
+        }
+
+        .status.done { background: rgba(6, 214, 160, 0.12); color: var(--success); }
+        .status.error { background: rgba(239, 71, 111, 0.12); color: var(--danger); }
+        .status.warn { background: rgba(255, 209, 102, 0.12); color: var(--warning); }
+
+        .file-list { margin-top: 1rem; }
+
+        .file-item {
             display: flex;
             justify-content: space-between;
             align-items: center;
+            background: var(--surface-light);
+            padding: 0.85rem;
+            border-radius: 0.6rem;
+            margin-bottom: 0.6rem;
+            gap: 0.75rem;
         }
+
         .file-item a {
-            color: #60a5fa;
+            color: var(--heading);
             text-decoration: none;
             font-weight: 600;
+            word-break: break-all;
         }
-        .small { font-size: 0.8rem; color: #888; }
+
+        .file-item span {
+            color: #8b949e;
+            font-size: 0.85rem;
+            white-space: nowrap;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 1rem;
+            height: 1rem;
+            border: 2px solid rgba(255,255,255,0.2);
+            border-top-color: var(--heading);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 0.5rem;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .section-note {
+            font-size: 0.8rem;
+            color: #6b7280;
+            margin-top: 0.5rem;
+        }
+
+        @media (max-width: 480px) {
+            .grid-3, .grid-2 { grid-template-columns: 1fr; }
+            header h1 { font-size: 1.5rem; }
+        }
     </style>
 </head>
 <body>
-    <h1>Kinogomy Downloader</h1>
+    <div class="container">
+        <header>
+            <h1>Kinogomy Downloader</h1>
+            <p>Pick an episode and download it to your device</p>
+        </header>
 
-    <div class="card">
-        <label for="url">Title page URL</label>
-        <input type="text" id="url" value="{{ default_url }}" placeholder="https://kinogomy.net/...">
-        <button id="loadBtn" onclick="loadEpisodes()">Load episodes</button>
-    </div>
+        <div class="card">
+            <h2>1. Paste title page URL</h2>
+            <input type="text" id="url" value="{{ default_url }}" placeholder="https://kinogomy.net/...">
+            <button id="loadBtn" onclick="loadEpisodes()">Load episodes</button>
+        </div>
 
-    <div class="card" id="episodeCard" style="display:none;">
-        <label for="season">Season</label>
-        <select id="season" onchange="updateEpisodes()"></select>
+        <div class="card" id="episodeCard" style="display:none;">
+            <h2>2. Single episode</h2>
 
-        <label for="episode">Episode</label>
-        <select id="episode"></select>
+            <label for="season">Season</label>
+            <select id="season" onchange="updateEpisodes()"></select>
 
-        <label for="lang">Audio language</label>
-        <select id="lang">
-            <option value="eng" selected>English</option>
-            <option value="rus">Russian</option>
-            <option value="ukr">Ukrainian</option>
-        </select>
+            <label for="episode">Episode</label>
+            <select id="episode"></select>
 
-        <button id="downloadBtn" onclick="startDownload()">Download</button>
-        <div class="status" id="status"></div>
-    </div>
+            <label for="lang">Audio language</label>
+            <select id="lang">
+                <option value="eng" selected>English</option>
+                <option value="rus">Russian</option>
+                <option value="ukr">Ukrainian</option>
+            </select>
 
-    <div class="card">
-        <h2>Batch download</h2>
-        <label for="batchSeason">Season</label>
-        <input type="number" id="batchSeason" value="1" min="1">
+            <button id="downloadBtn" onclick="startDownload()">Download episode</button>
+            <div class="status" id="status"></div>
+        </div>
 
-        <label for="batchFrom">From episode</label>
-        <input type="number" id="batchFrom" value="1" min="1">
+        <div class="card" id="batchCard" style="display:none;">
+            <h2>3. Batch download</h2>
 
-        <label for="batchTo">To episode</label>
-        <input type="number" id="batchTo" value="5" min="1">
+            <div class="grid-3">
+                <div>
+                    <label for="batchSeason">Season</label>
+                    <input type="number" id="batchSeason" value="1" min="1">
+                </div>
+                <div>
+                    <label for="batchFrom">From</label>
+                    <input type="number" id="batchFrom" value="1" min="1">
+                </div>
+                <div>
+                    <label for="batchTo">To</label>
+                    <input type="number" id="batchTo" value="5" min="1">
+                </div>
+            </div>
 
-        <label for="batchLang">Audio language</label>
-        <select id="batchLang">
-            <option value="eng" selected>English</option>
-            <option value="rus">Russian</option>
-            <option value="ukr">Ukrainian</option>
-        </select>
+            <label for="batchLang">Audio language</label>
+            <select id="batchLang">
+                <option value="eng" selected>English</option>
+                <option value="rus">Russian</option>
+                <option value="ukr">Ukrainian</option>
+            </select>
 
-        <button id="batchDownloadBtn" onclick="startBatchDownload()">Download range</button>
-        <div class="status" id="batchStatus"></div>
-    </div>
+            <button id="batchDownloadBtn" onclick="startBatchDownload()">Download range</button>
+            <div class="status" id="batchStatus"></div>
+            <p class="section-note">Downloads run one by one in the background.</p>
+        </div>
 
-    <div class="card">
-        <h2>Downloaded files</h2>
-        <button onclick="loadFiles()">Refresh list</button>
-        <div class="file-list" id="fileList"></div>
+        <div class="card">
+            <h2>Downloaded files</h2>
+            <button class="btn-secondary" onclick="loadFiles()">Refresh list</button>
+            <div class="file-list" id="fileList"></div>
+        </div>
     </div>
 
     <script>
         let episodeData = {};
+
+        function setStatus(el, text, type = '') {
+            el.className = 'status' + (type ? ' ' + type : '');
+            if (type === 'downloading') {
+                el.innerHTML = '<span class="spinner"></span>' + text;
+            } else {
+                el.textContent = text;
+            }
+        }
 
         async function loadEpisodes() {
             const url = document.getElementById('url').value;
@@ -146,6 +317,7 @@
             });
 
             document.getElementById('episodeCard').style.display = 'block';
+            document.getElementById('batchCard').style.display = 'block';
             updateEpisodes();
         }
 
@@ -156,21 +328,20 @@
             (episodeData[season] || []).forEach(ep => {
                 const opt = document.createElement('option');
                 opt.value = ep.season + '|' + ep.episode;
-                opt.textContent = `S${String(ep.season).padStart(2,'0')}E${String(ep.episode).padStart(2,'0')} - ${ep.title || ''} (${ep.audio.join(', ')})`;
+                opt.textContent = `S${String(ep.season).padStart(2,'0')}E${String(ep.episode).padStart(2,'0')} - ${ep.audio.join(', ')}`;
                 epSelect.appendChild(opt);
             });
         }
 
         async function startDownload() {
             const url = document.getElementById('url').value;
-            const season = document.getElementById('season').value.split(' ')[1];
             const [s, e] = document.getElementById('episode').value.split('|');
             const lang = document.getElementById('lang').value;
             const status = document.getElementById('status');
             const btn = document.getElementById('downloadBtn');
 
             btn.disabled = true;
-            status.textContent = 'Starting download...';
+            setStatus(status, 'Starting...', 'downloading');
 
             const res = await fetch('/download', {
                 method: 'POST',
@@ -180,12 +351,12 @@
             const data = await res.json();
 
             if (data.error) {
-                status.textContent = 'Error: ' + data.error;
+                setStatus(status, 'Error: ' + data.error, 'error');
                 btn.disabled = false;
                 return;
             }
 
-            status.textContent = 'Downloading ' + data.filename + '...';
+            setStatus(status, 'Downloading ' + data.filename + '...', 'downloading');
             pollStatus(data.job_id, data.filename, status, btn);
         }
 
@@ -193,12 +364,19 @@
             const interval = setInterval(async () => {
                 const res = await fetch('/status/' + jobId);
                 const data = await res.json();
-                statusEl.textContent = data.status + ': ' + filename;
-                if (data.status === 'done' || data.status.startsWith('failed')) {
+
+                if (data.status === 'done') {
                     clearInterval(interval);
                     if (btnEl) btnEl.disabled = false;
                     loadFiles();
-                    if (data.status === 'done') statusEl.innerHTML = `Done: <a href="/files/${encodeURIComponent(filename)}">${filename}</a>`;
+                    statusEl.innerHTML = `Done: <a href="/files/${encodeURIComponent(filename)}">${filename}</a>`;
+                    statusEl.className = 'status done';
+                } else if (data.status.startsWith('failed')) {
+                    clearInterval(interval);
+                    if (btnEl) btnEl.disabled = false;
+                    setStatus(statusEl, data.status + ': ' + filename, 'error');
+                } else {
+                    setStatus(statusEl, data.status + ': ' + filename, 'downloading');
                 }
             }, 2000);
         }
@@ -213,7 +391,7 @@
             const btn = document.getElementById('batchDownloadBtn');
 
             btn.disabled = true;
-            status.textContent = `Queueing S${season.padStart(2,'0')}E${fromEp.padStart(2,'0')}-E${toEp.padStart(2,'0')}...`;
+            setStatus(status, `Queueing S${season.padStart(2,'0')}E${fromEp.padStart(2,'0')}-E${toEp.padStart(2,'0')}...`, 'downloading');
 
             const res = await fetch('/download-batch', {
                 method: 'POST',
@@ -223,17 +401,17 @@
             const data = await res.json();
 
             if (data.error) {
-                status.textContent = 'Error: ' + data.error;
+                setStatus(status, 'Error: ' + data.error, 'error');
                 btn.disabled = false;
                 return;
             }
 
-            status.textContent = `Queued ${data.count} episodes.`;
+            setStatus(status, `Queued ${data.count} episodes.`, 'warn');
             data.job_ids.forEach((jobId, idx) => {
                 setTimeout(() => {
                     const label = document.createElement('div');
-                    label.className = 'small';
-                    label.textContent = 'Watching job ' + jobId;
+                    label.className = 'status downloading';
+                    label.innerHTML = '<span class="spinner"></span>Job ' + (idx + 1) + ' of ' + data.count;
                     status.appendChild(label);
                     pollStatus(jobId, 'batch ' + (idx + 1), label, null);
                 }, idx * 500);
@@ -247,14 +425,14 @@
             const list = document.getElementById('fileList');
             list.innerHTML = '';
             if (!data.files.length) {
-                list.innerHTML = '<div class="small">No files yet.</div>';
+                list.innerHTML = '<div class="section-note">No files yet.</div>';
                 return;
             }
             data.files.forEach(file => {
                 const sizeMb = (file.size / 1024 / 1024).toFixed(1);
                 const div = document.createElement('div');
                 div.className = 'file-item';
-                div.innerHTML = `<a href="/files/${encodeURIComponent(file.name)}">${file.name}</a> <span class="small">${sizeMb} MB</span>`;
+                div.innerHTML = `<a href="/files/${encodeURIComponent(file.name)}">${file.name}</a> <span>${sizeMb} MB</span>`;
                 list.appendChild(div);
             });
         }
