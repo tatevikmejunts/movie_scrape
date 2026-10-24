@@ -152,6 +152,26 @@
         .status.error { background: rgba(239, 71, 111, 0.12); color: var(--danger); }
         .status.warn { background: rgba(255, 209, 102, 0.12); color: var(--warning); }
 
+        .status-window {
+            margin-top: 1rem;
+            max-height: 240px;
+            overflow-y: auto;
+            background: rgba(0,0,0,0.2);
+            border-radius: 0.5rem;
+            padding: 0.5rem;
+        }
+
+        .status-window .status {
+            margin-top: 0.35rem;
+            font-size: 0.85rem;
+            padding: 0.5rem;
+            min-height: auto;
+        }
+
+        .status-window .status:first-child {
+            margin-top: 0;
+        }
+
         .file-list { margin-top: 1rem; }
 
         .file-item {
@@ -197,6 +217,18 @@
             margin-top: 0.5rem;
         }
 
+        .inline-label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            cursor: pointer;
+        }
+
+        .inline-label input {
+            width: auto;
+        }
+
         @media (max-width: 480px) {
             .grid-3, .grid-2 { grid-template-columns: 1fr; }
             header h1 { font-size: 1.5rem; }
@@ -214,6 +246,7 @@
             <h2>1. Paste title page URL</h2>
             <input type="text" id="url" value="{{ default_url }}" placeholder="https://kinogomy.net/...">
             <button id="loadBtn" onclick="loadEpisodes()">Load episodes</button>
+            <div class="section-note" id="tgNote"></div>
         </div>
 
         <div class="card" id="episodeCard" style="display:none;">
@@ -232,8 +265,15 @@
                 <option value="ukr">Ukrainian</option>
             </select>
 
+            <label class="inline-label">
+                <input type="checkbox" id="uploadTelegramSingle" checked> Upload to Telegram after download
+            </label>
+            <label class="inline-label">
+                <input type="checkbox" id="deleteAfterUploadSingle"> Delete local file after Telegram upload
+            </label>
+
             <button id="downloadBtn" onclick="startDownload()">Download episode</button>
-            <div class="status" id="status"></div>
+            <div class="status-window" id="statusWindow"></div>
         </div>
 
         <div class="card" id="batchCard" style="display:none;">
@@ -261,9 +301,39 @@
                 <option value="ukr">Ukrainian</option>
             </select>
 
+            <label class="inline-label">
+                <input type="checkbox" id="uploadTelegramBatch" checked> Upload to Telegram after download
+            </label>
+            <label class="inline-label">
+                <input type="checkbox" id="deleteAfterUploadBatch"> Delete local file after Telegram upload
+            </label>
+
             <button id="batchDownloadBtn" onclick="startBatchDownload()">Download range</button>
-            <div class="status" id="batchStatus"></div>
-            <p class="section-note">Downloads run one by one in the background.</p>
+            <div class="status-window" id="batchStatusWindow"></div>
+            <p class="section-note">Only 3 episodes download at once; the rest queue automatically.</p>
+        </div>
+
+        <div class="card" id="selectCard" style="display:none;">
+            <h2>4. Select episodes</h2>
+
+            <label for="selectLang">Audio language</label>
+            <select id="selectLang">
+                <option value="eng" selected>English</option>
+                <option value="rus">Russian</option>
+                <option value="ukr">Ukrainian</option>
+            </select>
+
+            <label class="inline-label">
+                <input type="checkbox" id="uploadTelegramSelect" checked> Upload to Telegram after download
+            </label>
+            <label class="inline-label">
+                <input type="checkbox" id="deleteAfterUploadSelect"> Delete local file after Telegram upload
+            </label>
+
+            <div id="episodeSelector" style="margin-top:1rem;"></div>
+
+            <button id="downloadSelectedBtn" onclick="startSelectedDownload()">Download selected</button>
+            <div class="status-window" id="selectStatusWindow"></div>
         </div>
 
         <div class="card">
@@ -274,14 +344,84 @@
     </div>
 
     <script>
+        let telegramConfigured = false;
         let episodeData = {};
+        let activeJobs = {};
 
-        function setStatus(el, text, type = '') {
-            el.className = 'status' + (type ? ' ' + type : '');
-            if (type === 'downloading') {
-                el.innerHTML = '<span class="spinner"></span>' + text;
+        function addJobRow(jobId, filename, windowId) {
+            const win = document.getElementById(windowId);
+            if (!win) return;
+            const row = document.createElement('div');
+            row.className = 'status downloading';
+            row.id = 'job-' + jobId;
+            row.innerHTML = '<span class="spinner"></span>' + filename + ' - starting';
+            win.prepend(row);
+            activeJobs[jobId] = {filename, windowId, rowEl: row};
+        }
+
+        function updateJobRow(jobId, status) {
+            const job = activeJobs[jobId];
+            if (!job) return;
+            const row = job.rowEl;
+            if (status === 'done' || status.startsWith('done +')) {
+                row.className = 'status done';
+                row.innerHTML = `<a href="/files/${encodeURIComponent(job.filename)}">${job.filename}</a> - ${status}`;
+                loadFiles();
+                setTimeout(() => removeJobRow(jobId), 15000);
+            } else if (status.startsWith('failed')) {
+                row.className = 'status error';
+                row.textContent = job.filename + ' - ' + status;
+                setTimeout(() => removeJobRow(jobId), 15000);
             } else {
-                el.textContent = text;
+                row.className = 'status downloading';
+                row.innerHTML = '<span class="spinner"></span>' + job.filename + ' - ' + status;
+            }
+        }
+
+        function removeJobRow(jobId) {
+            const job = activeJobs[jobId];
+            if (job && job.rowEl.parentNode) {
+                job.rowEl.parentNode.removeChild(job.rowEl);
+            }
+            delete activeJobs[jobId];
+        }
+
+        function showSummary(windowId, text, type) {
+            const win = document.getElementById(windowId);
+            if (!win) return;
+            const summary = document.createElement('div');
+            summary.className = 'status' + (type ? ' ' + type : '');
+            summary.textContent = text;
+            win.prepend(summary);
+        }
+
+        setInterval(async () => {
+            const jobIds = Object.keys(activeJobs);
+            if (!jobIds.length) return;
+            try {
+                const res = await fetch('/status-bulk', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(jobIds)
+                });
+                const statuses = await res.json();
+                jobIds.forEach(id => updateJobRow(id, statuses[id]?.status || 'unknown'));
+            } catch (e) {
+                // ignore polling errors
+            }
+        }, 2000);
+
+        async function checkTelegramConfig() {
+            const res = await fetch('/telegram-configured');
+            const data = await res.json();
+            telegramConfigured = data.configured;
+            const note = document.getElementById('tgNote');
+            if (telegramConfigured) {
+                note.textContent = 'Telegram upload is configured.';
+                note.style.color = 'var(--success)';
+            } else {
+                note.innerHTML = 'Telegram not configured. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHANNEL_ID to enable uploads.';
+                note.style.color = 'var(--warning)';
             }
         }
 
@@ -318,7 +458,9 @@
 
             document.getElementById('episodeCard').style.display = 'block';
             document.getElementById('batchCard').style.display = 'block';
+            document.getElementById('selectCard').style.display = 'block';
             updateEpisodes();
+            renderEpisodeSelector();
         }
 
         function updateEpisodes() {
@@ -337,48 +479,131 @@
             const url = document.getElementById('url').value;
             const [s, e] = document.getElementById('episode').value.split('|');
             const lang = document.getElementById('lang').value;
-            const status = document.getElementById('status');
+            const uploadTelegram = document.getElementById('uploadTelegramSingle').checked;
+            const deleteAfterUpload = document.getElementById('deleteAfterUploadSingle').checked;
             const btn = document.getElementById('downloadBtn');
 
             btn.disabled = true;
-            setStatus(status, 'Starting...', 'downloading');
 
             const res = await fetch('/download', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                body: `page_url=${encodeURIComponent(url)}&season=${s}&episode=${e}&lang=${lang}`
+                body: `page_url=${encodeURIComponent(url)}&season=${s}&episode=${e}&lang=${lang}&upload_telegram=${uploadTelegram}&delete_after_upload=${deleteAfterUpload}`
             });
             const data = await res.json();
+            btn.disabled = false;
 
             if (data.error) {
-                setStatus(status, 'Error: ' + data.error, 'error');
-                btn.disabled = false;
+                showSummary('statusWindow', 'Error: ' + data.error, 'error');
                 return;
             }
 
-            setStatus(status, 'Downloading ' + data.filename + '...', 'downloading');
-            pollStatus(data.job_id, data.filename, status, btn);
+            addJobRow(data.job_id, data.filename, 'statusWindow');
         }
 
-        function pollStatus(jobId, filename, statusEl, btnEl) {
-            const interval = setInterval(async () => {
-                const res = await fetch('/status/' + jobId);
-                const data = await res.json();
+        function renderEpisodeSelector() {
+            const container = document.getElementById('episodeSelector');
+            container.innerHTML = '';
 
-                if (data.status === 'done') {
-                    clearInterval(interval);
-                    if (btnEl) btnEl.disabled = false;
-                    loadFiles();
-                    statusEl.innerHTML = `Done: <a href="/files/${encodeURIComponent(filename)}">${filename}</a>`;
-                    statusEl.className = 'status done';
-                } else if (data.status.startsWith('failed')) {
-                    clearInterval(interval);
-                    if (btnEl) btnEl.disabled = false;
-                    setStatus(statusEl, data.status + ': ' + filename, 'error');
-                } else {
-                    setStatus(statusEl, data.status + ': ' + filename, 'downloading');
-                }
-            }, 2000);
+            Object.keys(episodeData).sort((a, b) => {
+                return parseInt(a.split(' ')[1]) - parseInt(b.split(' ')[1]);
+            }).forEach(season => {
+                const seasonNum = season.split(' ')[1];
+                const details = document.createElement('details');
+                details.style.marginBottom = '0.75rem';
+                details.style.background = '#202020';
+                details.style.borderRadius = '0.5rem';
+                details.style.padding = '0.5rem';
+                details.open = true;
+
+                const summary = document.createElement('summary');
+                summary.style.fontWeight = '600';
+                summary.style.cursor = 'pointer';
+                summary.innerHTML = `${season} (${episodeData[season].length} episodes) <button type="button" class="btn-secondary" style="width:auto;padding:0.2rem 0.5rem;margin:0 0 0 0.5rem;font-size:0.75rem;" onclick="event.preventDefault();toggleSeason('${seasonNum}')">Toggle</button>`;
+                details.appendChild(summary);
+
+                const grid = document.createElement('div');
+                grid.className = 'grid-4';
+                grid.style.display = 'grid';
+                grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(80px, 1fr))';
+                grid.style.gap = '0.4rem';
+                grid.style.marginTop = '0.5rem';
+
+                episodeData[season].forEach(ep => {
+                    const label = document.createElement('label');
+                    label.className = 'inline-label';
+                    label.style.fontSize = '0.85rem';
+                    label.style.margin = '0';
+                    label.style.padding = '0.35rem';
+                    label.style.background = 'var(--surface-light)';
+                    label.style.borderRadius = '0.35rem';
+                    label.innerHTML = `<input type="checkbox" class="ep-check" data-season="${ep.season}" data-episode="${ep.episode}"> E${String(ep.episode).padStart(2, '0')}`;
+                    grid.appendChild(label);
+                });
+
+                details.appendChild(grid);
+                container.appendChild(details);
+            });
+        }
+
+        function toggleSeason(seasonNum) {
+            const checks = document.querySelectorAll(`.ep-check[data-season="${seasonNum}"]`);
+            const allChecked = Array.from(checks).every(c => c.checked);
+            checks.forEach(c => c.checked = !allChecked);
+        }
+
+        function getSelectedEpisodes() {
+            const selected = [];
+            document.querySelectorAll('.ep-check:checked').forEach(box => {
+                selected.push({
+                    season: parseInt(box.dataset.season),
+                    episode: parseInt(box.dataset.episode)
+                });
+            });
+            return selected;
+        }
+
+        async function startSelectedDownload() {
+            const url = document.getElementById('url').value;
+            const lang = document.getElementById('selectLang').value;
+            const uploadTelegram = document.getElementById('uploadTelegramSelect').checked;
+            const deleteAfterUpload = document.getElementById('deleteAfterUploadSelect').checked;
+            const btn = document.getElementById('downloadSelectedBtn');
+
+            const episodes = getSelectedEpisodes();
+            if (!episodes.length) {
+                showSummary('selectStatusWindow', 'No episodes selected.', 'warn');
+                return;
+            }
+
+            if (!confirm(`Download ${episodes.length} selected episodes?`)) {
+                return;
+            }
+
+            btn.disabled = true;
+            const res = await fetch('/download-selected', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    page_url: url,
+                    lang: lang,
+                    upload_telegram: uploadTelegram,
+                    delete_after_upload: deleteAfterUpload,
+                    episodes: episodes
+                })
+            });
+            const data = await res.json();
+            btn.disabled = false;
+
+            if (data.error) {
+                showSummary('selectStatusWindow', 'Error: ' + data.error, 'error');
+                return;
+            }
+
+            showSummary('selectStatusWindow', `Queued ${data.count} episodes. Only 3 run at once.`, 'warn');
+            data.job_ids.forEach((jobId, idx) => {
+                addJobRow(jobId, `S${String(episodes[idx].season).padStart(2,'0')}E${String(episodes[idx].episode).padStart(2,'0')}`, 'selectStatusWindow');
+            });
         }
 
         async function startBatchDownload() {
@@ -387,36 +612,49 @@
             const fromEp = document.getElementById('batchFrom').value;
             const toEp = document.getElementById('batchTo').value;
             const lang = document.getElementById('batchLang').value;
-            const status = document.getElementById('batchStatus');
+            const uploadTelegram = document.getElementById('uploadTelegramBatch').checked;
+            const deleteAfterUpload = document.getElementById('deleteAfterUploadBatch').checked;
             const btn = document.getElementById('batchDownloadBtn');
 
             btn.disabled = true;
-            setStatus(status, `Queueing S${season.padStart(2,'0')}E${fromEp.padStart(2,'0')}-E${toEp.padStart(2,'0')}...`, 'downloading');
-
             const res = await fetch('/download-batch', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                body: `page_url=${encodeURIComponent(url)}&season=${season}&episode_from=${fromEp}&episode_to=${toEp}&lang=${lang}`
+                body: `page_url=${encodeURIComponent(url)}&season=${season}&episode_from=${fromEp}&episode_to=${toEp}&lang=${lang}&upload_telegram=${uploadTelegram}&delete_after_upload=${deleteAfterUpload}`
             });
             const data = await res.json();
+            btn.disabled = false;
 
             if (data.error) {
-                setStatus(status, 'Error: ' + data.error, 'error');
-                btn.disabled = false;
+                showSummary('batchStatusWindow', 'Error: ' + data.error, 'error');
                 return;
             }
 
-            setStatus(status, `Queued ${data.count} episodes.`, 'warn');
+            showSummary('batchStatusWindow', `Queued ${data.count} episodes. Only 3 run at once.`, 'warn');
             data.job_ids.forEach((jobId, idx) => {
-                setTimeout(() => {
-                    const label = document.createElement('div');
-                    label.className = 'status downloading';
-                    label.innerHTML = '<span class="spinner"></span>Job ' + (idx + 1) + ' of ' + data.count;
-                    status.appendChild(label);
-                    pollStatus(jobId, 'batch ' + (idx + 1), label, null);
-                }, idx * 500);
+                const epNum = parseInt(fromEp) + idx;
+                addJobRow(jobId, `S${String(season).padStart(2,'0')}E${String(epNum).padStart(2,'0')}`, 'batchStatusWindow');
             });
+        }
+
+        async function uploadFileToTelegram(filename, btn) {
+            btn.disabled = true;
+            btn.textContent = 'Sending...';
+            const res = await fetch('/upload-telegram/' + encodeURIComponent(filename), {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'delete_after=true'
+            });
+            const data = await res.json();
             btn.disabled = false;
+            if (data.ok) {
+                btn.textContent = 'Sent & deleted';
+                btn.style.color = 'var(--success)';
+                loadFiles();
+            } else {
+                btn.textContent = 'Failed';
+                btn.style.color = 'var(--danger)';
+            }
         }
 
         async function loadFiles() {
@@ -432,11 +670,26 @@
                 const sizeMb = (file.size / 1024 / 1024).toFixed(1);
                 const div = document.createElement('div');
                 div.className = 'file-item';
-                div.innerHTML = `<a href="/files/${encodeURIComponent(file.name)}">${file.name}</a> <span>${sizeMb} MB</span>`;
+                div.style.flexDirection = 'column';
+                div.style.alignItems = 'flex-start';
+                const tgButton = telegramConfigured
+                    ? `<button class="btn-secondary" style="width:auto;padding:0.4rem 0.7rem;margin:0;font-size:0.8rem;" onclick="uploadFileToTelegram('${file.name.replace(/'/g, "\\'")}', this)">Send to Telegram</button>`
+                    : '';
+                div.innerHTML = `
+                    <div style="display:flex;justify-content:space-between;width:100%;align-items:center;gap:0.75rem;">
+                        <a href="/files/${encodeURIComponent(file.name)}">${file.name}</a>
+                        <div style="display:flex;align-items:center;gap:0.75rem;">
+                            <span>${sizeMb} MB</span>
+                            ${tgButton}
+                        </div>
+                    </div>
+                    <span class="small">${file.folder}</span>
+                `;
                 list.appendChild(div);
             });
         }
 
+        checkTelegramConfig();
         loadFiles();
     </script>
 </body>

@@ -5,3 +5,5 @@ fastapi
 uvicorn
 python-multipart
 jinja2
+python-telegram-bot
+python-dotenv
