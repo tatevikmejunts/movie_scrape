@@ -38,8 +38,8 @@ templates = Jinja2Templates(env=jinja_env)
 downloads_dir = Path("downloads")
 downloads_dir.mkdir(exist_ok=True)
 
-# Limit concurrent downloads so the server stays responsive.
-download_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="download")
+# Use a single worker so episodes download and upload in order (S01E01, S01E02, ...).
+download_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="download")
 
 # In-memory job store. Restarts erase it; files remain in downloads/.
 download_jobs: dict[str, dict] = {}

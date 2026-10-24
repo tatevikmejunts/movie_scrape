@@ -6,6 +6,7 @@ Requires two environment variables:
 """
 
 import os
+import re
 from pathlib import Path
 
 from telegram import Bot
@@ -21,9 +22,20 @@ def get_telegram_credentials() -> tuple[str, str] | None:
 
 
 def make_caption(filename: str) -> str:
-    """Build a clean caption from the downloaded filename."""
-    name = Path(filename).stem.replace(".", " ").replace("_", " ")
-    return name.title()
+    """Build a clean caption from the downloaded filename.
+
+    Example: show.name.S01E02.mp4 -> 'Show Name - Season 1 Episode 2'.
+    """
+    stem = Path(filename).stem
+    match = re.search(r"S(\d{2,})E(\d{2,})", stem, re.I)
+    if match:
+        season = int(match.group(1))
+        episode = int(match.group(2))
+        title = stem[: match.start()].replace(".", " ").replace("_", " ").strip()
+        title = re.sub(r"\s+", " ", title).title()
+        return f"{title} - Season {season} Episode {episode}" if title else f"Season {season} Episode {episode}"
+    name = stem.replace(".", " ").replace("_", " ")
+    return re.sub(r"\s+", " ", name).title()
 
 
 async def upload_video(video_path: Path, caption: str | None = None) -> dict:
