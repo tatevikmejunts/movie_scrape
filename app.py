@@ -6,12 +6,13 @@ Run locally:
 Then open http://<your-computer-ip>:8000 on your phone (same Wi-Fi).
 """
 
+import asyncio
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from queue import Queue
 
-import asyncio
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -21,9 +22,9 @@ import telegram_uploader as tu
 from bs4 import BeautifulSoup
 from fastapi import Body, FastAPI, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 from pydantic import BaseModel
 from fastapi.templating import Jinja2Templates
-from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 app = FastAPI(title="Kinogomy Downloader")
 # Disable Jinja2 template caching to avoid a cache-key hashability issue
@@ -38,11 +39,53 @@ templates = Jinja2Templates(env=jinja_env)
 downloads_dir = Path("downloads")
 downloads_dir.mkdir(exist_ok=True)
 
-# Use a single worker so episodes download and upload in order (S01E01, S01E02, ...).
-download_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="download")
+# Number of parallel downloads. Increase this to use more of your bandwidth.
+# Telegram uploads are still forced into a single ordered queue so S01E01 uploads
+# before S01E02 even if S01E02 finished downloading first.
+DOWNLOAD_WORKERS = 3
+download_executor = ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS, thread_name_prefix="download")
 
 # In-memory job store. Restarts erase it; files remain in downloads/.
 download_jobs: dict[str, dict] = {}
+
+# Ordered upload queue: items are processed in submission order.
+upload_queue: Queue = Queue()
+
+
+def _upload_worker() -> None:
+    """Daemon thread: wait for each download in order, then upload to Telegram."""
+    while True:
+        job_id, future, out_path, upload_to_tg, delete_after_upload = upload_queue.get()
+        try:
+            future.result()
+        except Exception as exc:  # noqa: BLE001
+            download_jobs[job_id]["status"] = f"failed: {exc}"
+            upload_queue.task_done()
+            continue
+
+        if not upload_to_tg or not tu.get_telegram_credentials():
+            download_jobs[job_id]["status"] = "done"
+            upload_queue.task_done()
+            continue
+
+        download_jobs[job_id]["status"] = "uploading to Telegram"
+        try:
+            result = asyncio.run(tu.upload_video(out_path))
+        except Exception as exc:  # noqa: BLE001
+            result = {"ok": False, "error": str(exc)}
+
+        if result["ok"]:
+            download_jobs[job_id]["status"] = "done + sent to Telegram"
+            download_jobs[job_id]["telegram_message_id"] = result["message_id"]
+            if delete_after_upload:
+                out_path.unlink(missing_ok=True)
+                download_jobs[job_id]["status"] = "done + sent to Telegram + local file deleted"
+        else:
+            download_jobs[job_id]["status"] = "done (Telegram upload failed: " + result["error"] + ")"
+        upload_queue.task_done()
+
+
+threading.Thread(target=_upload_worker, daemon=True, name="ordered-upload").start()
 
 
 def fetch_episode_data(page_url: str) -> dict:
@@ -64,37 +107,17 @@ def run_download(
     stream: dict,
     out_path: Path,
     lang: str,
-    upload_to_tg: bool = False,
-    delete_after_upload: bool = False,
 ) -> None:
-    """Background worker that downloads one episode and optionally uploads to Telegram."""
-    try:
-        download_jobs[job_id]["status"] = "downloading"
-        audio_index = dv.audio_index_for_language(stream["audio_names"], lang)
-        map_args = None
-        if audio_index is not None:
-            map_args = ["-map", "0:v:0", "-map", f"0:a:{audio_index}"]
-        success = dv.run_ffmpeg(stream["hls"], out_path, map_args=map_args)
+    """Download one episode. The upload stage is handled by the ordered upload queue."""
+    download_jobs[job_id]["status"] = "downloading"
+    audio_index = dv.audio_index_for_language(stream["audio_names"], lang)
+    map_args = None
+    if audio_index is not None:
+        map_args = ["-map", "0:v:0", "-map", f"0:a:{audio_index}"]
+    success = dv.run_ffmpeg(stream["hls"], out_path, map_args=map_args)
 
-        if not success:
-            download_jobs[job_id]["status"] = "failed"
-            return
-
-        if upload_to_tg and tu.get_telegram_credentials():
-            download_jobs[job_id]["status"] = "uploading to Telegram"
-            result = asyncio.run(tu.upload_video(out_path))
-            if result["ok"]:
-                download_jobs[job_id]["status"] = "done + sent to Telegram"
-                download_jobs[job_id]["telegram_message_id"] = result["message_id"]
-                if delete_after_upload:
-                    out_path.unlink(missing_ok=True)
-                    download_jobs[job_id]["status"] = "done + sent to Telegram + local file deleted"
-            else:
-                download_jobs[job_id]["status"] = "done (Telegram upload failed: " + result["error"] + ")"
-        else:
-            download_jobs[job_id]["status"] = "done"
-    except Exception as exc:  # noqa: BLE001
-        download_jobs[job_id]["status"] = f"failed: {exc}"
+    if not success:
+        raise RuntimeError("ffmpeg download failed")
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -159,7 +182,8 @@ def queue_download(
         "filename": out_path.name,
     }
 
-    download_executor.submit(run_download, job_id, stream, out_path, lang, upload_to_tg, delete_after_upload)
+    future = download_executor.submit(run_download, job_id, stream, out_path, lang)
+    upload_queue.put((job_id, future, out_path, upload_to_tg, delete_after_upload))
     return job_id
 
 
